@@ -117,8 +117,8 @@ class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
         filters = Q()
 
         e = "e" if include_self else ""
-        max_op = "lt" + e
-        min_op = "gt" + e
+        max_op = f"lt{e}"
+        min_op = f"gt{e}"
         if direction == "asc":
             max_attr = opts.left_attr
             min_attr = opts.right_attr
@@ -127,8 +127,8 @@ class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
             min_attr = opts.left_attr
 
         tree_key = opts.tree_id_attr
-        min_key = "%s__%s" % (min_attr, min_op)
-        max_key = "%s__%s" % (max_attr, max_op)
+        min_key = f"{min_attr}__{min_op}"
+        max_key = f"{max_attr}__{max_op}"
 
         q = queryset.order_by(opts.tree_id_attr, opts.parent_attr, opts.left_attr).only(
             opts.tree_id_attr,
@@ -144,13 +144,7 @@ class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
         if not q:
             return self.none()
 
-        for group in groupby(
-            q,
-            key=lambda n: (
-                getattr(n, opts.tree_id_attr),
-                getattr(n, opts.parent_attr + "_id"),
-            ),
-        ):
+        for group in groupby(q, key=lambda n: (getattr(n, opts.tree_id_attr), getattr(n, f"{opts.parent_attr}_id"))):
             next_lft = None
             for node in list(group[1]):
                 tree, lft, rght, min_val, max_val = (
@@ -169,7 +163,7 @@ class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
                     if max_val > min_max["max"]:
                         min_max["max"] = max_val
                     next_lft = rght + 1
-                elif lft != next_lft:
+                else:
                     filters |= Q(
                         **{
                             tree_key: tree,
@@ -373,7 +367,7 @@ class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
             new_parts = []
             new_parts__append = new_parts.append
             for part in parts:
-                new_parts__append(getattr(self, part + "_attr", part))
+                new_parts__append(getattr(self, f"{part}_attr", part))
             new_lookups[join_parts(new_parts)] = v
         return new_lookups
 
@@ -437,9 +431,9 @@ class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
         """
         if cumulative:
             subquery_filters = {
-                rel_field + "__tree_id": OuterRef(self.tree_id_attr),
-                rel_field + "__lft__gte": OuterRef(self.left_attr),
-                rel_field + "__lft__lte": OuterRef(self.right_attr),
+                f"{rel_field}__tree_id": OuterRef(self.tree_id_attr),
+                f"{rel_field}__lft__gte": OuterRef(self.left_attr),
+                f"{rel_field}__lft__lte": OuterRef(self.right_attr),
             }
         else:
             current_rel_model = rel_model
@@ -564,17 +558,15 @@ class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
                 allow_existing_pk=True,
                 refresh_target=refresh_target,
             )
+        if target is None:
+            if node.is_child_node():
+                self._make_child_root_node(node)
+        elif target.is_root_node() and position in ("left", "right"):
+            self._make_sibling_of_root_node(node, target, position)
+        elif node.is_root_node():
+            self._move_root_node(node, target, position)
         else:
-            if target is None:
-                if node.is_child_node():
-                    self._make_child_root_node(node)
-            elif target.is_root_node() and position in ("left", "right"):
-                self._make_sibling_of_root_node(node, target, position)
-            else:
-                if node.is_root_node():
-                    self._move_root_node(node, target, position)
-                else:
-                    self._move_child_node(node, target, position)
+            self._move_child_node(node, target, position)
 
     def move_node(self, node, target, position="last-child"):
         """
@@ -632,9 +624,7 @@ class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
         pks = qs.values_list("pk", flat=True)
 
         rebuild_helper = self._rebuild_helper
-        idx = 0
-        for pk in pks:
-            idx += 1
+        for idx, pk in enumerate(pks, start=1):
             rebuild_helper(pk, 1, idx)
 
     rebuild.alters_data = True
@@ -756,8 +746,7 @@ class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
         setattr(
             instance, self.right_attr, getattr(instance, self.right_attr) + right_shift
         )
-        parent = cached_field_value(instance, self.parent_attr)
-        if parent:
+        if parent := cached_field_value(instance, self.parent_attr):
             if not seen:
                 seen = set()
             seen.add(instance)
@@ -777,18 +766,16 @@ class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
         target_right = getattr(target, self.right_attr)
         target_level = getattr(target, self.level_attr)
 
-        if position == "last-child" or position == "first-child":
-            if position == "last-child":
-                space_target = target_right - 1
-            else:
-                space_target = target_left
+        if position == "last-child":
+            space_target = target_right - 1
             level_change = level - target_level - 1
             parent = target
-        elif position == "left" or position == "right":
-            if position == "left":
-                space_target = target_left - 1
-            else:
-                space_target = target_right
+        elif position == "first-child":
+            space_target = target_left
+            level_change = level - target_level - 1
+            parent = target
+        elif position in ["left", "right"]:
+            space_target = target_left - 1 if position == "left" else target_right
             level_change = level - target_level
             parent = getattr(target, self.parent_attr)
         else:
@@ -796,10 +783,7 @@ class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
 
         left_right_change = left - space_target - 1
 
-        right_shift = 0
-        if parent:
-            right_shift = 2 * (node.get_descendant_count() + 1)
-
+        right_shift = 2 * (node.get_descendant_count() + 1) if parent else 0
         return space_target, level_change, left_right_change, parent, right_shift
 
     def _close_gap(self, size, target, tree_id):
@@ -1126,7 +1110,7 @@ class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
         target_right = getattr(target, self.right_attr)
         target_level = getattr(target, self.level_attr)
 
-        if position == "last-child" or position == "first-child":
+        if position in ["last-child", "first-child"]:
             if node == target:
                 raise InvalidMove(_("A node may not be made a child of itself."))
             elif left < target_left < right:
@@ -1140,16 +1124,15 @@ class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
                 else:
                     new_left = target_right
                     new_right = target_right + width - 1
+            elif target_left > left:
+                new_left = target_left - width + 1
+                new_right = target_left
             else:
-                if target_left > left:
-                    new_left = target_left - width + 1
-                    new_right = target_left
-                else:
-                    new_left = target_left + 1
-                    new_right = target_left + width
+                new_left = target_left + 1
+                new_right = target_left + width
             level_change = level - target_level - 1
             parent = target
-        elif position == "left" or position == "right":
+        elif position in ["left", "right"]:
             if node == target:
                 raise InvalidMove(_("A node may not be made a sibling of itself."))
             elif left < target_left < right:
@@ -1163,13 +1146,12 @@ class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
                 else:
                     new_left = target_left
                     new_right = target_left + width - 1
+            elif target_right > right:
+                new_left = target_right - width + 1
+                new_right = target_right
             else:
-                if target_right > right:
-                    new_left = target_right - width + 1
-                    new_right = target_right
-                else:
-                    new_left = target_right + 1
-                    new_right = target_right + width
+                new_left = target_right + 1
+                new_right = target_right + width
             level_change = level - target_level
             parent = getattr(target, self.parent_attr)
         else:

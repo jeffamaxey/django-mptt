@@ -4,11 +4,11 @@ from mptt import utils
 
 
 class TreeQuerySet(models.query.QuerySet):
-    def as_manager(cls):
+    def as_manager(self):
         # Address the circular dependency between `Queryset` and `Manager`.
         from mptt.managers import TreeManager
 
-        manager = TreeManager.from_queryset(cls)()
+        manager = TreeManager.from_queryset(self)()
         manager._built_with_as_manager = True
         return manager
 

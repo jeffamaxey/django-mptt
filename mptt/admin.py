@@ -53,14 +53,16 @@ class MPTTModelAdmin(ModelAdmin):
             db = kwargs.get("using")
 
             limit_choices_to = db_field.get_limit_choices_to()
-            defaults = dict(
-                form_class=TreeNodeChoiceField,
-                queryset=db_field.remote_field.model._default_manager.using(
-                    db
-                ).complex_filter(limit_choices_to),
-                required=False,
+            defaults = (
+                dict(
+                    form_class=TreeNodeChoiceField,
+                    queryset=db_field.remote_field.model._default_manager.using(
+                        db
+                    ).complex_filter(limit_choices_to),
+                    required=False,
+                )
+                | kwargs
             )
-            defaults.update(kwargs)
             kwargs = defaults
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
@@ -78,23 +80,22 @@ class MPTTModelAdmin(ModelAdmin):
         trigger the post_delete hooks.)
         """
         # If this is True, the confirmation page has been displayed
-        if request.POST.get("post"):
-            n = 0
-            with queryset.model._tree_manager.delay_mptt_updates():
-                for obj in queryset:
-                    if self.has_delete_permission(request, obj):
-                        obj_display = force_str(obj)
-                        self.log_deletion(request, obj, obj_display)
-                        obj.delete()
-                        n += 1
-            self.message_user(
-                request, _("Successfully deleted %(count)d items.") % {"count": n}
-            )
-            # Return None to display the change list page again
-            return None
-        else:
+        if not request.POST.get("post"):
             # (ab)using the built-in action to display the confirmation page
             return delete_selected(self, request, queryset)
+        n = 0
+        with queryset.model._tree_manager.delay_mptt_updates():
+            for obj in queryset:
+                if self.has_delete_permission(request, obj):
+                    obj_display = force_str(obj)
+                    self.log_deletion(request, obj, obj_display)
+                    obj.delete()
+                    n += 1
+        self.message_user(
+            request, _("Successfully deleted %(count)d items.") % {"count": n}
+        )
+        # Return None to display the change list page again
+        return None
 
     def get_actions(self, request):
         actions = super().get_actions(request)
@@ -234,7 +235,7 @@ class DraggableMPTTAdmin(MPTTModelAdmin):
         try:
             self.model._tree_manager.move_node(cut_item, pasted_on, position)
         except InvalidMove as e:
-            self.message_user(request, "%s" % e, level=messages.ERROR)
+            self.message_user(request, f"{e}", level=messages.ERROR)
             return http.HttpResponse("FAIL, invalid move.")
         except IntegrityError as e:
             self.message_user(
@@ -262,8 +263,10 @@ class DraggableMPTTAdmin(MPTTModelAdmin):
         opts = self.model._meta
 
         return {
-            "storageName": "tree_%s_%s_collapsed" % (opts.app_label, opts.model_name),
-            "treeStructure": self._build_tree_structure(self.get_queryset(request)),
+            "storageName": f"tree_{opts.app_label}_{opts.model_name}_collapsed",
+            "treeStructure": self._build_tree_structure(
+                self.get_queryset(request)
+            ),
             "levelIndent": self.mptt_level_indent,
             "messages": {
                 "before": _("move node before node"),
@@ -291,10 +294,7 @@ class DraggableMPTTAdmin(MPTTModelAdmin):
         all_nodes = {}
 
         mptt_opts = self.model._mptt_meta
-        items = queryset.values_list(
-            "pk",
-            "%s_id" % mptt_opts.parent_attr,
-        )
+        items = queryset.values_list("pk", f"{mptt_opts.parent_attr}_id")
         for p_id, parent_id in items:
             all_nodes.setdefault(
                 str(parent_id) if parent_id else 0,
@@ -332,7 +332,7 @@ class TreeRelatedFieldListFilter(RelatedFieldListFilter):
             self.rel_name = field.remote_field.get_related_field().name
         else:
             self.rel_name = self.other_model._meta.pk.name
-        self.changed_lookup_kwarg = "%s__%s__inhierarchy" % (field_path, self.rel_name)
+        self.changed_lookup_kwarg = f"{field_path}__{self.rel_name}__inhierarchy"
         super().__init__(field, request, params, model, model_admin, field_path)
         self.lookup_val = request.GET.get(self.changed_lookup_kwarg)
 
@@ -349,7 +349,7 @@ class TreeRelatedFieldListFilter(RelatedFieldListFilter):
                 other_models = other_model.get_descendants(True)
                 del self.used_parameters[self.changed_lookup_kwarg]
                 self.used_parameters.update(
-                    {"%s__%s__in" % (self.field_path, self.rel_name): other_models}
+                    {f"{self.field_path}__{self.rel_name}__in": other_models}
                 )
             # #### MPTT ADDITION END
             return queryset.filter(**self.used_parameters)
@@ -370,10 +370,7 @@ class TreeRelatedFieldListFilter(RelatedFieldListFilter):
         }
         choices = []
         for pk, val in initial_choices:
-            padding_style = ' style="padding-%s:%spx"' % (
-                "right" if language_bidi else "left",
-                mptt_level_indent * levels_dict[pk],
-            )
+            padding_style = f' style="padding-{"right" if language_bidi else "left"}:{mptt_level_indent * levels_dict[pk]}px"'
             choices.append((pk, val, mark_safe(padding_style)))
         return choices
 

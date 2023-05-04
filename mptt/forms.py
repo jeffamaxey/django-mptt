@@ -47,7 +47,7 @@ class TreeNodeChoiceFieldMixin:
         generating option labels.
         """
         level_indicator = self._get_level_indicator(obj)
-        return mark_safe(level_indicator + " " + conditional_escape(smart_str(obj)))
+        return mark_safe(f"{level_indicator} {conditional_escape(smart_str(obj))}")
 
 
 class TreeNodeChoiceField(TreeNodeChoiceFieldMixin, forms.ModelChoiceField):
@@ -130,13 +130,13 @@ class MoveNodeForm(forms.Form):
         position_choices = kwargs.pop("position_choices", None)
         level_indicator = kwargs.pop("level_indicator", None)
         super().__init__(*args, **kwargs)
-        opts = node._mptt_meta
         if valid_targets is None:
+            opts = node._mptt_meta
             valid_targets = node._tree_manager.exclude(
                 **{
                     opts.tree_id_attr: getattr(node, opts.tree_id_attr),
-                    opts.left_attr + "__gte": getattr(node, opts.left_attr),
-                    opts.right_attr + "__lte": getattr(node, opts.right_attr),
+                    f"{opts.left_attr}__gte": getattr(node, opts.left_attr),
+                    f"{opts.right_attr}__lte": getattr(node, opts.right_attr),
                 }
             )
         self.fields["target"].queryset = valid_targets
@@ -177,8 +177,7 @@ class MPTTAdminForm(forms.ModelForm):
         if self.instance and self.instance.pk and not self.instance._state.adding:
             instance = self.instance
             opts = self._meta.model._mptt_meta
-            parent_field = self.fields.get(opts.parent_attr)
-            if parent_field:
+            if parent_field := self.fields.get(opts.parent_attr):
                 parent_qs = parent_field.queryset
                 parent_qs = parent_qs.exclude(
                     pk__in=instance.get_descendants(include_self=True).values_list(
@@ -191,10 +190,13 @@ class MPTTAdminForm(forms.ModelForm):
         cleaned_data = super().clean()
         opts = self._meta.model._mptt_meta
         parent = cleaned_data.get(opts.parent_attr)
-        if self.instance and parent:
-            if parent.is_descendant_of(self.instance, include_self=True):
-                if opts.parent_attr not in self._errors:
-                    self._errors[opts.parent_attr] = self.error_class()
-                self._errors[opts.parent_attr].append(_("Invalid parent"))
-                del self.cleaned_data[opts.parent_attr]
+        if (
+            self.instance
+            and parent
+            and parent.is_descendant_of(self.instance, include_self=True)
+        ):
+            if opts.parent_attr not in self._errors:
+                self._errors[opts.parent_attr] = self.error_class()
+            self._errors[opts.parent_attr].append(_("Invalid parent"))
+            del self.cleaned_data[opts.parent_attr]
         return cleaned_data

@@ -166,11 +166,10 @@ def do_drilldown_tree_for_node(parser, token):
         )
 
     all_descendants = False
-    if len_bits > 4:
-        if bits[4] == "all_descendants":
-            len_bits -= 1
-            bits.pop(4)
-            all_descendants = True
+    if len_bits > 4 and bits[4] == "all_descendants":
+        len_bits -= 1
+        bits.pop(4)
+        all_descendants = True
 
     if len_bits == 8:
         if bits[4] != "count":
@@ -297,10 +296,8 @@ class RecurseTreeNode(template.Node):
         self.queryset_var = queryset_var
 
     def _render_node(self, context, node):
-        bits = []
         context.push()
-        for child in node.get_children():
-            bits.append(self._render_node(context, child))
+        bits = [self._render_node(context, child) for child in node.get_children()]
         context["node"] = node
         context["children"] = mark_safe("".join(bits))
         rendered = self.template_nodes.render(context)

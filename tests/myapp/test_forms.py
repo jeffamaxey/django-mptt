@@ -32,7 +32,7 @@ class TestForms(TreeTestCase):
             instance=c,
         )
         self.assertFalse(form.is_valid())
-        self.assertIn("Select a valid choice", "%s" % form.errors)
+        self.assertIn("Select a valid choice", f"{form.errors}")
 
         # Test that even though we remove the field queryset limit,
         # validation still fails.
@@ -45,7 +45,7 @@ class TestForms(TreeTestCase):
         )
         form.fields["parent"].queryset = Category.objects.all()
         self.assertFalse(form.is_valid())
-        self.assertIn("Invalid parent", "%s" % form.errors)
+        self.assertIn("Invalid parent", f"{form.errors}")
 
     def test_field_types(self):
         ReferencingModelForm = modelform_factory(ReferencingModel, exclude=("id",))

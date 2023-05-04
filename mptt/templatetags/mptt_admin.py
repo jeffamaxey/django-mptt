@@ -33,7 +33,7 @@ register = Library()
 
 
 MPTT_ADMIN_LEVEL_INDENT = getattr(settings, "MPTT_ADMIN_LEVEL_INDENT", 10)
-IS_GRAPPELLI_INSTALLED = True if "grappelli" in settings.INSTALLED_APPS else False
+IS_GRAPPELLI_INSTALLED = "grappelli" in settings.INSTALLED_APPS
 
 
 ###
@@ -79,7 +79,7 @@ def mptt_items_for_result(cl, result, form):
         # #### MPTT SUBSTITUTION START
         empty_value_display = cl.model_admin.get_empty_value_display()
         # #### MPTT SUBSTITUTION END
-        row_classes = ["field-%s" % _coerce_field_name(field_name, field_index)]
+        row_classes = [f"field-{_coerce_field_name(field_name, field_index)}"]
         try:
             f, attr, value = lookup_field(field_name, result, cl.model_admin)
         except ObjectDoesNotExist:
@@ -114,10 +114,7 @@ def mptt_items_for_result(cl, result, form):
                 if is_many_to_one:
                     # #### MPTT SUBSTITUTION END
                     field_val = getattr(result, f.name)
-                    if field_val is None:
-                        result_repr = empty_value_display
-                    else:
-                        result_repr = field_val
+                    result_repr = empty_value_display if field_val is None else field_val
                 else:
                     # #### MPTT SUBSTITUTION START
                     result_repr = display_for_field(value, f, empty_value_display)
@@ -128,17 +125,13 @@ def mptt_items_for_result(cl, result, form):
                     row_classes.append("nowrap")
         if force_str(result_repr) == "":
             result_repr = mark_safe("&nbsp;")
-        row_class = mark_safe(' class="%s"' % " ".join(row_classes))
+        row_class = mark_safe(f' class="{" ".join(row_classes)}"')
 
         # #### MPTT ADDITION START
         if field_name == mptt_indent_field:
             level = getattr(result, result._mptt_meta.level_attr)
             padding_attr = mark_safe(
-                ' style="padding-%s:%spx"'
-                % (
-                    "right" if get_language_bidi() else "left",
-                    8 + mptt_level_indent * level,
-                )
+                f' style="padding-{"right" if get_language_bidi() else "left"}:{8 + mptt_level_indent * level}px"'
             )
         else:
             padding_attr = ""
@@ -162,15 +155,9 @@ def mptt_items_for_result(cl, result, form):
                 )
                 # Convert the pk to something that can be used in Javascript.
                 # Problem cases are long ints (23L) and non-ASCII strings.
-                if cl.to_field:
-                    attr = str(cl.to_field)
-                else:
-                    attr = pk
+                attr = str(cl.to_field) if cl.to_field else pk
                 value = result.serializable_value(attr)
-                if cl.is_popup:
-                    opener = format_html(' data-popup-opener="{}"', value)
-                else:
-                    opener = ""
+                opener = format_html(' data-popup-opener="{}"', value) if cl.is_popup else ""
                 link_or_text = format_html(
                     '<a href="{}"{}>{}</a>', url, opener, result_repr
                 )
@@ -184,7 +171,7 @@ def mptt_items_for_result(cl, result, form):
                 link_or_text,
                 table_tag,
             )
-            # #### MPTT SUBSTITUTION END
+                    # #### MPTT SUBSTITUTION END
         else:
             # By default the fields come from ModelAdmin.list_editable, but if we pull
             # the fields out of the form instead of list_editable custom admins

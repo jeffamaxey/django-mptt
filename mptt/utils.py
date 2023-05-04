@@ -156,10 +156,7 @@ def drilldown_tree_for_node(
     ``all_descendants``
        If ``True``, return all descendants, not just immediate children.
     """
-    if all_descendants:
-        children = node.get_descendants()
-    else:
-        children = node.get_children()
+    children = node.get_descendants() if all_descendants else node.get_children()
     if rel_cls and rel_field and count_attr:
         children = node._tree_manager.add_related_count(
             children, rel_cls, rel_field, count_attr, cumulative
@@ -178,7 +175,7 @@ def print_debug_info(qs, file=None):
     header = (
         "pk",
         opts.level_attr,
-        "%s_id" % opts.parent_attr,
+        f"{opts.parent_attr}_id",
         opts.tree_id_attr,
         opts.left_attr,
         opts.right_attr,
@@ -187,11 +184,8 @@ def print_debug_info(qs, file=None):
     writer.writerow(header)
     for n in qs.order_by("tree_id", "lft"):
         level = getattr(n, opts.level_attr)
-        row = []
-        for field in header[:-1]:
-            row.append(getattr(n, field))
-
-        row_text = "%s%s" % ("- " * level, str(n))
+        row = [getattr(n, field) for field in header[:-1]]
+        row_text = f'{"- " * level}{str(n)}'
         row.append(row_text)
         writer.writerow(row)
 
@@ -207,7 +201,11 @@ def _get_tree_model(model_class):
         b = bases.pop()
         # NOTE can't use `issubclass(b, MPTTModel)` here because we can't
         # import MPTTModel yet!  So hasattr(b, '_mptt_meta') will have to do.
-        if hasattr(b, "_mptt_meta") and not (b._meta.abstract or b._meta.proxy):
+        if (
+            hasattr(b, "_mptt_meta")
+            and not b._meta.abstract
+            and not b._meta.proxy
+        ):
             return b
     return None
 
@@ -239,7 +237,6 @@ def get_cached_trees(queryset):
        `Node.objects.filter(**kwargs).get_cached_trees()`
     """
 
-    current_path = []
     top_nodes = []
 
     if queryset:
@@ -247,6 +244,7 @@ def get_cached_trees(queryset):
         parent_attr = queryset[0]._mptt_meta.parent_attr
         root_level = None
         is_filtered = hasattr(queryset, "query") and queryset.query.has_filters()
+        current_path = []
         for obj in queryset:
             # Get the current mptt node level
             node_level = obj.get_level()

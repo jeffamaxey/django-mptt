@@ -72,10 +72,7 @@ class MPTTOptions:
 
     def __init__(self, opts=None, **kwargs):
         # Override defaults with options provided
-        if opts:
-            opts = list(opts.__dict__.items())
-        else:
-            opts = []
+        opts = list(opts.__dict__.items()) if opts else []
         opts.extend(list(kwargs.items()))
 
         if "tree_manager_attr" in [opt[0] for opt in opts]:
@@ -292,7 +289,8 @@ class MPTTModelBase(ModelBase):
             bases = [base for base in cls.mro() if issubclass(base, MPTTModel)]
         for base in bases:
             if (
-                not (base._meta.abstract or base._meta.proxy)
+                not base._meta.abstract
+                and not base._meta.proxy
                 and base._tree_manager.tree_model is base
             ):
                 cls._mptt_tracking_base = base
@@ -387,11 +385,12 @@ class MPTTModelBase(ModelBase):
                     tree_manager = cls._default_manager
                 else:
                     for cls_manager in cls._meta.managers:
-                        if isinstance(cls_manager, TreeManager):
-                            # prefer any locally defined manager (i.e. keep going if not local)
-                            if cls_manager.model is cls:
-                                tree_manager = cls_manager
-                                break
+                        if (
+                            isinstance(cls_manager, TreeManager)
+                            and cls_manager.model is cls
+                        ):
+                            tree_manager = cls_manager
+                            break
 
                 if is_cls_tree_model:
                     idx_together = (
@@ -441,15 +440,17 @@ class MPTTModel(models.Model, metaclass=MPTTModelBase):
         self._mptt_meta.update_mptt_cached_fields(self)
 
     def _mpttfield(self, fieldname):
-        translated_fieldname = getattr(self._mptt_meta, fieldname + "_attr")
+        translated_fieldname = getattr(self._mptt_meta, f"{fieldname}_attr")
         return getattr(self, translated_fieldname)
 
     @_classproperty
     def _mptt_updates_enabled(cls):
-        if not cls._mptt_tracking_base:
-            return True
-        return getattr(
-            cls._mptt_tracking_base._threadlocal, "mptt_updates_enabled", True
+        return (
+            getattr(
+                cls._mptt_tracking_base._threadlocal, "mptt_updates_enabled", True
+            )
+            if cls._mptt_tracking_base
+            else True
         )
 
     # ideally this'd be part of the _mptt_updates_enabled classproperty, but it seems
@@ -532,7 +533,7 @@ class MPTTModel(models.Model, metaclass=MPTTModelBase):
         else:
             order_by = opts.left_attr
             if ascending:
-                order_by = "-" + order_by
+                order_by = f"-{order_by}"
 
             left = getattr(self, opts.left_attr)
             right = getattr(self, opts.right_attr)
@@ -580,16 +581,16 @@ class MPTTModel(models.Model, metaclass=MPTTModelBase):
 
         ancestors = Q(
             **{
-                "%s__lte" % opts.left_attr: left,
-                "%s__gte" % opts.right_attr: right,
+                f"{opts.left_attr}__lte": left,
+                f"{opts.right_attr}__gte": right,
                 opts.tree_id_attr: self._mpttfield("tree_id"),
             }
         )
 
         descendants = Q(
             **{
-                "%s__gte" % opts.left_attr: left,
-                "%s__lte" % opts.left_attr: right,
+                f"{opts.left_attr}__gte": left,
+                f"{opts.left_attr}__lte": right,
                 opts.tree_id_attr: self._mpttfield("tree_id"),
             }
         )
@@ -610,15 +611,15 @@ class MPTTModel(models.Model, metaclass=MPTTModelBase):
         If called from a template where the tree has been walked by the
         ``cache_tree_children`` filter, no database query is required.
         """
-        if hasattr(self, "_cached_children"):
-            qs = self._tree_manager.filter(pk__in=[n.pk for n in self._cached_children])
-            qs._result_cache = self._cached_children
-            return qs
-        else:
-            if self.is_leaf_node():
-                return self._tree_manager.none()
-
-            return self._tree_manager._mptt_filter(parent=self)
+        if not hasattr(self, "_cached_children"):
+            return (
+                self._tree_manager.none()
+                if self.is_leaf_node()
+                else self._tree_manager._mptt_filter(parent=self)
+            )
+        qs = self._tree_manager.filter(pk__in=[n.pk for n in self._cached_children])
+        qs._result_cache = self._cached_children
+        return qs
 
     @raise_if_unsaved
     def get_descendants(self, include_self=False):
@@ -630,11 +631,11 @@ class MPTTModel(models.Model, metaclass=MPTTModelBase):
         include this model instance.
         """
         if self.is_leaf_node():
-            if not include_self:
-                return self._tree_manager.none()
-            else:
-                return self._tree_manager.filter(pk=self.pk)
-
+            return (
+                self._tree_manager.filter(pk=self.pk)
+                if include_self
+                else self._tree_manager.none()
+            )
         opts = self._mptt_meta
         left = getattr(self, opts.left_attr)
         right = getattr(self, opts.right_attr)
@@ -688,7 +689,7 @@ class MPTTModel(models.Model, metaclass=MPTTModelBase):
         else:
             qs = self._tree_manager._mptt_filter(
                 qs,
-                parent__pk=getattr(self, self._mptt_meta.parent_attr + "_id"),
+                parent__pk=getattr(self, f"{self._mptt_meta.parent_attr}_id"),
                 left__gt=self._mpttfield("right"),
             )
 
@@ -709,14 +710,14 @@ class MPTTModel(models.Model, metaclass=MPTTModelBase):
                 parent=None,
                 tree_id__lt=self._mpttfield("tree_id"),
             )
-            qs = qs.order_by("-" + opts.tree_id_attr)
+            qs = qs.order_by(f"-{opts.tree_id_attr}")
         else:
             qs = self._tree_manager._mptt_filter(
                 qs,
-                parent__pk=getattr(self, opts.parent_attr + "_id"),
+                parent__pk=getattr(self, f"{opts.parent_attr}_id"),
                 right__lt=self._mpttfield("left"),
             )
-            qs = qs.order_by("-" + opts.right_attr)
+            qs = qs.order_by(f"-{opts.right_attr}")
 
         siblings = qs[:1]
         return siblings and siblings[0] or None
@@ -747,7 +748,7 @@ class MPTTModel(models.Model, metaclass=MPTTModelBase):
         if self.is_root_node():
             queryset = self._tree_manager._mptt_filter(parent=None)
         else:
-            parent_id = getattr(self, self._mptt_meta.parent_attr + "_id")
+            parent_id = getattr(self, f"{self._mptt_meta.parent_attr}_id")
             queryset = self._tree_manager._mptt_filter(parent__pk=parent_id)
         if not include_self:
             queryset = queryset.exclude(pk=self.pk)
@@ -799,7 +800,7 @@ class MPTTModel(models.Model, metaclass=MPTTModelBase):
         Returns ``True`` if this model instance is a root node,
         ``False`` otherwise.
         """
-        return getattr(self, self._mptt_meta.parent_attr + "_id") is None
+        return getattr(self, f"{self._mptt_meta.parent_attr}_id") is None
 
     @raise_if_unsaved
     def is_descendant_of(self, other, include_self=False):
@@ -815,13 +816,12 @@ class MPTTModel(models.Model, metaclass=MPTTModelBase):
 
         if getattr(self, opts.tree_id_attr) != getattr(other, opts.tree_id_attr):
             return False
-        else:
-            left = getattr(self, opts.left_attr)
-            right = getattr(self, opts.right_attr)
+        left = getattr(self, opts.left_attr)
+        right = getattr(self, opts.right_attr)
 
-            return left > getattr(other, opts.left_attr) and right < getattr(
-                other, opts.right_attr
-            )
+        return left > getattr(other, opts.left_attr) and right < getattr(
+            other, opts.right_attr
+        )
 
     @raise_if_unsaved
     def is_ancestor_of(self, other, include_self=False):
@@ -850,32 +850,31 @@ class MPTTModel(models.Model, metaclass=MPTTModelBase):
         opts = self._meta
         if opts.pk.remote_field is None:
             return True
-        else:
-            if not hasattr(self, "_mptt_saved"):
-                manager = self.__class__._base_manager
-                manager = manager.using(using)
-                self._mptt_saved = manager.filter(pk=self.pk).exists()
-            return self._mptt_saved
+        if not hasattr(self, "_mptt_saved"):
+            manager = self.__class__._base_manager
+            manager = manager.using(using)
+            self._mptt_saved = manager.filter(pk=self.pk).exists()
+        return self._mptt_saved
 
     def _get_user_field_names(self):
         """Returns the list of user defined (i.e. non-mptt internal) field names."""
         from django.db.models.fields import AutoField
 
-        field_names = []
         internal_fields = (
             self._mptt_meta.left_attr,
             self._mptt_meta.right_attr,
             self._mptt_meta.tree_id_attr,
             self._mptt_meta.level_attr,
         )
-        for field in self._meta.concrete_fields:
+        return [
+            field.name
+            for field in self._meta.concrete_fields
             if (
                 (field.name not in internal_fields)
                 and (not isinstance(field, AutoField))
                 and (not field.primary_key)
-            ):  # noqa
-                field_names.append(field.name)
-        return field_names
+            )
+        ]
 
     def save(self, *args, **kwargs):
         """
@@ -1129,8 +1128,7 @@ class MPTTModel(models.Model, metaclass=MPTTModelBase):
         target_right = self._mpttfield("right")
         tree_id = self._mpttfield("tree_id")
         self._tree_manager._close_gap(tree_width, target_right, tree_id)
-        parent = cached_field_value(self, self._mptt_meta.parent_attr)
-        if parent:
+        if parent := cached_field_value(self, self._mptt_meta.parent_attr):
             right_shift = -self.get_descendant_count() - 2
             self._tree_manager._post_insert_update_cached_parent_right(
                 parent, right_shift

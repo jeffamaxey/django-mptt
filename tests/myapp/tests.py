@@ -67,15 +67,7 @@ def get_tree_details(nodes):
     opts = nodes[0]._mptt_meta
     return "\n".join(
         [
-            "%s %s %s %s %s %s"
-            % (
-                n.pk,
-                getattr(n, "%s_id" % opts.parent_attr) or "-",
-                getattr(n, opts.tree_id_attr),
-                getattr(n, opts.level_attr),
-                getattr(n, opts.left_attr),
-                getattr(n, opts.right_attr),
-            )
+            f'{n.pk} {getattr(n, f"{opts.parent_attr}_id") or "-"} {getattr(n, opts.tree_id_attr)} {getattr(n, opts.level_attr)} {getattr(n, opts.left_attr)} {getattr(n, opts.right_attr)}'
             for n in nodes
         ]
     )
@@ -130,8 +122,7 @@ class DocTestTestCase(TreeTestCase):
             encoding="utf-8",
         )
         sys.stdout = before
-        content = dummy_stream.content
-        if content:
+        if content := dummy_stream.content:
             before.write(content + "\n")
             self.fail()
 
@@ -1376,8 +1367,7 @@ class ManagerTests(TreeTestCase):
             tm = model._tree_manager
             if id(tm) in seen:
                 self.fail(
-                    "Tree managers for %s and %s are the same manager"
-                    % (model.__name__, seen[id(tm)].__name__)
+                    f"Tree managers for {model.__name__} and {seen[id(tm)].__name__} are the same manager"
                 )
             seen[id(tm)] = model
 
@@ -1407,8 +1397,7 @@ class ManagerTests(TreeTestCase):
                     break
             else:
                 self.fail(
-                    "Detected infinite recursion in %s._tree_manager._base_manager"
-                    % model
+                    f"Detected infinite recursion in {model}._tree_manager._base_manager"
                 )
 
     def test_proxy_custom_manager(self):
@@ -1741,10 +1730,10 @@ class TreeInfoTestCase(TreeTestCase):
                     {
                         "nodes": Genre.objects.filter(
                             **{
-                                "%s__gte" % Genre._mptt_meta.level_attr: 1,
-                                "%s__lte" % Genre._mptt_meta.level_attr: 2,
+                                f"{Genre._mptt_meta.level_attr}__gte": 1,
+                                f"{Genre._mptt_meta.level_attr}__lte": 2,
                             }
-                        ),
+                        )
                     }
                 )
             )
@@ -1764,10 +1753,10 @@ class TreeInfoTestCase(TreeTestCase):
                     {
                         "nodes": Genre.objects.filter(
                             **{
-                                "%s__gte" % Genre._mptt_meta.level_attr: 1,
-                                "%s__lte" % Genre._mptt_meta.level_attr: 2,
+                                f"{Genre._mptt_meta.level_attr}__gte": 1,
+                                f"{Genre._mptt_meta.level_attr}__lte": 2,
                             }
-                        ),
+                        )
                     }
                 )
             )
@@ -1841,7 +1830,7 @@ class DrilldownTreeTestCase(TreeTestCase):
     def test_drilldown_html(self):
         for idx, genre in enumerate(Genre.objects.all()):
             for i in range(idx):
-                game = genre.game_set.create(name="Game %s" % i)
+                game = genre.game_set.create(name=f"Game {i}")
                 genre.games_m2m.add(game)
 
         self.assertEqual(self.render_for_node(1), "[1:],2:1,6:5")
@@ -1990,7 +1979,7 @@ class TestUnsaved(TreeTestCase):
         ]:
             self.assertRaisesRegex(
                 ValueError,
-                "Cannot call %s on unsaved Genre instances" % method,
+                f"Cannot call {method} on unsaved Genre instances",
                 getattr(Genre(), method),
             )
 
@@ -2962,10 +2951,11 @@ class ModelMetaIndexes(TreeTestCase):
 
     def test_index_together(self):
         already_idx = [["tree_id", "lft"], ("tree_id", "lft")]
-        no_idx = [tuple(), list()]
+        no_idx = [tuple(), []]
         some_idx = [["tree_id"], ("tree_id",), [["tree_id"]], (("tree_id",),)]
 
         for idx, case in enumerate(already_idx + no_idx + some_idx):
+
 
             class Meta:
                 index_together = case
@@ -2978,7 +2968,7 @@ class ModelMetaIndexes(TreeTestCase):
             # effective.
 
             SomeModel = type(
-                str("model_{}".format(idx)),
+                f"model_{idx}",
                 (MPTTModel,),
                 {
                     "Meta": Meta,
@@ -2990,10 +2980,11 @@ class ModelMetaIndexes(TreeTestCase):
 
     def test_index_together_different_attr(self):
         already_idx = [["abc", "def"], ("abc", "def")]
-        no_idx = [tuple(), list()]
+        no_idx = [tuple(), []]
         some_idx = [["abc"], ("abc",), [["abc"]], (("abc",),)]
 
         for idx, case in enumerate(already_idx + no_idx + some_idx):
+
 
             class MPTTMeta:
                 tree_id_attr = "abc"
@@ -3004,7 +2995,7 @@ class ModelMetaIndexes(TreeTestCase):
                 app_label = "myapp"
 
             SomeModel = type(
-                str("model__different_attr_{}".format(idx)),
+                f"model__different_attr_{idx}",
                 (MPTTModel,),
                 {"MPTTMeta": MPTTMeta, "Meta": Meta, "__module__": str(__name__)},
             )
